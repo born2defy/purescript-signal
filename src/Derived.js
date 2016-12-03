@@ -1,5 +1,42 @@
-// module Derived
 
+// tests
+var state1 = { a: 10, b: 100.1, c: "Poop" };
+var state2 = { a: 20, b: 100.1, c: "Poop" };
+var state3 = { a: 20, b: 112.1, c: "Poop" };
+var state4 = { a: 20, b: 112.1, c: "Farts" };
+var state5 = { a: 20, b: 112.1, c: "Crap" };
+var state6 = { a: 25, b: 250.1, c: "Doodoo" };
+var selectorA = function(state){ return state.a };
+var selectorB = function(state){ return state.b };
+var selectorC = function(state){ return state.c };
+var eqDict = { eq: function(x){ return function(y){ return x === y; }; }};
+
+var SelectorA = mkSrc(eqDict)(selectorA);
+var SelectorB = mkSrc(eqDict)(selectorB);
+var SelectorC = mkSrc(eqDict)(selectorC);
+
+var Plus10A = mapDerive(function(x){ return x + 10; })(SelectorA);
+var Plus205B = mapDerive(function(x){ return x + 205; })(SelectorB);
+var PlusRuleC = mapDerive(function(x){ return x + " RULE"; })(SelectorC);
+var ApplyAll = function(a, b, c, fa, fb, fc){ return { selectA: a, selectB: b, selectC: c, plus10A: fa, plus205B: fb, plusRuleC: fc }; };
+var Result = liftD6(ApplyAll, SelectorA, SelectorB, SelectorC, Plus10A, Plus205B, PlusRuleC);
+
+var log1 = console.log("Result 1");
+var result1 = console.log(Result.derive(state1));
+var log2 = console.log("Result 2");
+var result2 = console.log(Result.derive(state2));
+var log3 = console.log("Result 3");
+var result3 = console.log(Result.derive(state3));
+var log4 = console.log("Result 4");
+var result4 = console.log(Result.derive(state4));
+var log5 = console.log("Result 5");
+var result5 = console.log(Result.derive(state5));
+var log6 = console.log("Result 6");
+var result6 = console.log(Result.derive(state6));
+
+
+
+// module Derived
 function makeUndefined() {
   var subs = [];
   var val = undefined;
@@ -47,60 +84,23 @@ function makeAsSrc(eq) {
             //check if this is the first value fed to a src. If it is, we set the value and flip the first flag.  We don't call the children here since those
             //children might depend on other sources which have not been initialized yet.
             if (first) {
+                console.log("Initializing Source");
                 first = false;
                 val = newval;
             }
         },
-        forceUpdate: function(){ subs.forEach(function(sub) { sub(val); console.log("Calling sub with " + val.toString()) })},
+        forceUpdate: function(){ subs.forEach(function(sub) { sub(val); console.log("Forcing Update and Calling sub with " + val.toString()) })},
         set: function(newval) {
             //check to see if the value has been updated, and if so update the subscribers.
             if (!first && !eq["eq"](val)(newval)) {
                 val = newval;
-                subs.forEach(function(sub) { sub(newval); console.log("Calling sub with " + val.toString()) });
+                subs.forEach(function(sub) { sub(newval); console.log("Src Calling sub with " + val.toString()) });
             }
         }
     };
       return sig;
   };
 };
-
-
-
-// tests
-var state1 = { a: 10, b: 100.1, c: "Poop" };
-var state2 = { a: 20, b: 100.1, c: "Poop" };
-var state3 = { a: 20, b: 112.1, c: "Poop" };
-var state4 = { a: 20, b: 112.1, c: "Farts" };
-var state5 = { a: 20, b: 112.1, c: "Crap" };
-var state6 = { a: 25, b: 250.1, c: "Doodoo" };
-var selectorA = function(state){ return state.a };
-var selectorB = function(state){ return state.b };
-var selectorC = function(state){ return state.c };
-var eqDict = { eq: function(x){ return function(y){ return x === y; }; }};
-
-var SelectorA = mkSrc(eqDict)(selectorA)(state1);;
-var SelectorB = mkSrc(eqDict)(selectorB)(state1);
-var SelectorC = mkSrc(eqDict)(selectorC)(state1);
-
-var Plus10A = mapDerive(function(x){ return x + 10; })(SelectorA);
-var Plus205B = mapDerive(function(x){ return x + 205; })(SelectorB);
-var PlusRuleC = mapDerive(function(x){ return x + " RULE"; })(SelectorC);
-var ApplyAll = function(a, b, c, fa, fb, fc){ return { selectA: a, selectB: b, selectC: c, plus10A: fa, plus205B: fb, plusRuleC: fc }; };
-var Result = liftD6(ApplyAll, SelectorA, SelectorB, SelectorC, Plus10A, Plus205B, PlusRuleC);
-
-var log1 = console.log("Result 1");
-var result1 = console.log(Result.derive(state1));
-var log2 = console.log("Result 2");
-var result2 = console.log(Result.derive(state2));
-var log3 = console.log("Result 3");
-var result3 = console.log(Result.derive(state3));
-var log4 = console.log("Result 4");
-var result4 = console.log(Result.derive(state4));
-var log5 = console.log("Result 5");
-var result5 = console.log(Result.derive(state5));
-var log6 = console.log("Result 6");
-var result6 = console.log(Result.derive(state6));
-
 
 
 // Modified version with reference creation
@@ -112,6 +112,8 @@ function mkSrc(eqSelector) {
                 var result =  {
                   getSrcs: function(){ return srcs; },
                   derive: function(newState){ srcSignal.set(selector(newState)); return srcSignal.get(); },
+                  initialize: function(newState){ srcSignal.initialize(selector(newState)); },
+                  forceUpdate: function(){ srcSignal.forceUpdate(); },
                   getSignal: function(){ return srcSignal; }
                 };
               srcs.push(result);
@@ -130,8 +132,8 @@ function mapDerive(fun) {
             derive: function(newState){
                 if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
                   //initialize the sources
-                  srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
-                  srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                  srcs.forEach(function(src){ src.initialize(newState); }); // initialize the source signals
+                  srcs.forEach(function(src){ src.forceUpdate(); }); // update the chidren
                   initialized = true;
                 }
                 else {  // otherwise we just use the standard behavior
@@ -174,8 +176,8 @@ function applyDerive(deriveFun){
           derive: function(newState){
               if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
                 //initialize the sources
-                srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
-                srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                srcs.forEach(function(src){ src.initialize(newState); }); // initialize the source signals
+                srcs.forEach(function(src){ src.forceUpdate(); }); // update the chidren
                 initialized = true;
               }
               else {  // otherwise we just use the standard behavior
@@ -206,8 +208,9 @@ function liftD6(fun, d1, d2, d3, d4, d5, d6){
           derive: function(newState){
               if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
                 //initialize the sources
-                srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
-                srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                console.log("Initializing All Sources");
+                srcs.forEach(function(src){ src.initialize(newState); }); // initialize the source signals
+                srcs.forEach(function(src){ src.forceUpdate(); }); // update the chidren
                 initialized = true;
               }
               else {  // otherwise we just use the standard behavior
