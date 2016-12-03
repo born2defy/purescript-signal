@@ -1,5 +1,21 @@
 // module Derived
 
+function makeUndefined() {
+  var subs = [];
+  var val = undefined;
+  var sig = {
+    subscribe: function(sub) {
+      subs.push(sub);
+    },
+    get: function() { return val; },
+    set: function(newval) {
+      val = newval;
+      subs.forEach(function(sub) { sub(newval); });
+    }
+  };
+  return sig;
+};
+
 function make(initial) {
   var subs = [];
   var val = initial;
@@ -11,27 +27,37 @@ function make(initial) {
     get: function() { return val; },
     set: function(newval) {
       val = newval;
-      subs.forEach(function(sub) { sub(newval); console.log("Calling sub with " + val.toString()) });
+      subs.forEach(function(sub) { sub(newval); });
     }
   };
   return sig;
 };
 // modified to use drop equals as default behavior for set
 function makeAsSrc(eq) {
-    return function(initial){
+    return function(){
       var subs = [];
-      var val = initial;
+      var val = undefined;
+      var first = true;
       var sig = {
         subscribe: function(sub) {
           subs.push(sub);
-          sub(val);
         },
         get: function() { return val; },
+        initialize: function(newval){
+            //check if this is the first value fed to a src. If it is, we set the value and flip the first flag.  We don't call the children here since those
+            //children might depend on other sources which have not been initialized yet.
+            if (first) {
+                first = false;
+                val = newval;
+            }
+        },
+        forceUpdate: function(){ subs.forEach(function(sub) { sub(val); console.log("Calling sub with " + val.toString()) })},
         set: function(newval) {
-            if (!eq["eq"](val)(newval)) {
-                 val = newval;
+            //check to see if the value has been updated, and if so update the subscribers.
+            if (!first && !eq["eq"](val)(newval)) {
+                val = newval;
                 subs.forEach(function(sub) { sub(newval); console.log("Calling sub with " + val.toString()) });
-            };
+            }
         }
     };
       return sig;
@@ -81,8 +107,7 @@ var result6 = console.log(Result.derive(state6));
 // (s -> a) -> Derived a
 function mkSrc(eqSelector) {
       return function(selector){
-           return function(initialState){
-                var srcSignal = makeAsSrc(eqSelector)(selector(initialState));
+                var srcSignal = makeAsSrc(eqSelector)();
                 var srcs = [];
                 var result =  {
                   getSrcs: function(){ return srcs; },
@@ -93,19 +118,28 @@ function mkSrc(eqSelector) {
               return result;
       };
     };
-};
 
 // (a -> b) -> Derived s a -> Derived s b
 function mapDerive(fun) {
   return function(derived) {
           var srcs = derived.getSrcs();
           var resultSignal = mapSig(fun)(derived.getSignal());
+          var initialized = false;
           var result = {
             getSrcs: function(){ return srcs; },
             derive: function(newState){
-                srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
-                return resultSignal.get();  // read the result signal
-                  },
+                if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
+                  //initialize the sources
+                  srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
+                  srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                  initialized = true;
+                }
+                else {  // otherwise we just use the standard behavior
+                  srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
+                }
+
+              return resultSignal.get();  // finally we return the result signal
+            },
             getSignal: function(){ return resultSignal; }
             };
           return result;
@@ -133,14 +167,23 @@ function applyDerive(deriveFun){
             if (acc.includes(src)){ return acc; }
             else{ acc.push(src); return acc; };
             }, []);
-
+        var initialized = false;
         var resultSignal = applySig(deriveFun.getSignal())(deriveVal.getSignal());
         var result = {
           getSrcs: function(){ return srcs; },
           derive: function(newState){
-              srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
-              return resultSignal.get();  // read the result signal
-                },
+              if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
+                //initialize the sources
+                srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
+                srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                initialized = true;
+              }
+              else {  // otherwise we just use the standard behavior
+                srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
+              }
+
+            return resultSignal.get();  // finally we return the result signal
+          },
           getSignal: function(){ return resultSignal; }
         };
         return result;
@@ -155,15 +198,24 @@ function liftD6(fun, d1, d2, d3, d4, d5, d6){
             if (acc.includes(src)){ return acc; }
             else{ acc.push(src); return acc; };
             }, []);
-
+        var initialized = false;
         var resultSignal = liftA6P(fun, d1.getSignal(), d2.getSignal(), d3.getSignal(), d4.getSignal()
                                     , d5.getSignal(), d6.getSignal());
         var result = {
           getSrcs: function(){ return srcs; },
           derive: function(newState){
-              srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
-              return resultSignal.get();  // read the result signal
-                },
+              if (!initialized){ // if this is the first run we manually update all sources and then call their subscribers
+                //initialize the sources
+                srcs.forEach(function(src){ src.getSignal().initialize(newState); }); // initialize the source signals
+                srcs.forEach(function(src){ src.getSignal().forceUpdate(); }); // update the chidren
+                initialized = true;
+              }
+              else {  // otherwise we just use the standard behavior
+                srcs.forEach(function(src){ src.derive(newState); }); // drive the source signals
+              }
+
+            return resultSignal.get();  // finally we return the result signal
+          },
           getSignal: function(){ return resultSignal; }
         };
         return result;
@@ -171,7 +223,7 @@ function liftD6(fun, d1, d2, d3, d4, d5, d6){
 
 function mapSig(fun) {
   return function(sig) {
-    var out = make(fun(sig.get()));
+    var out = makeUndefined();
     sig.subscribe(function(val) { out.set(fun(val)); });
     return out;
   };
@@ -179,7 +231,7 @@ function mapSig(fun) {
 
 function applySig(fun) {
   return function(sig) {
-    var out = make(fun.get()(sig.get()));
+    var out = makeUndefined();
     var produce = function() { out.set(fun.get()(sig.get())); };
     fun.subscribe(produce);
     sig.subscribe(produce);
@@ -205,7 +257,7 @@ function dropRepeats(eq) {
 
 
 function liftA6P(f, sig1, sig2, sig3, sig4, sig5, sig6) {
-    var out = make(f(sig1.get(),sig2.get(),sig3.get(),sig4.get(), sig5.get(),sig6.get()));
+    var out = makeUndefined();
     var produce = function() { out.set(f(sig1.get(),sig2.get(),sig3.get(),sig4.get(),sig5.get(),sig6.get())); };
     sig1.subscribe(produce);
     sig2.subscribe(produce);

@@ -18,6 +18,7 @@
     "purescript-functions": "~1.0.0",
     "purescript-test-unit": "~9.0.0",
     "purescript-lists": "~1.0.0",
-    "purescript-console": "^1.0.0"
+    "purescript-console": "^1.0.0",
+    "purescript-psci-support": "^1.0.0"
   }
 }
